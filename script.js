@@ -7,6 +7,7 @@ let soundEnabled = true;
 let timers = { w: 600, b: 600 }; 
 let clockInterval = null;
 let gameActive = false;
+let selectedSquare = null;
 
 const pieceValues = { 'p': 1, 'n': 3, 'b': 3, 'r': 5, 'q': 9 };
 
@@ -95,11 +96,83 @@ function executeAiMove(moveStr) {
     }
 }
 
+// --- ระบบ Tap-to-Move ---
+function handleSquareClick(square) {
+    if (game.game_over() || isAiThinking) return;
+
+    const piece = game.get(square);
+    const turn = game.turn();
+    const isAiMode = $('#gameMode').val() === 'ai';
+
+    // ถ้าเล่นกับ AI ห้ามเรากดเลือกหมากของ AI (สีดำ)
+    if (isAiMode && turn === 'b') return;
+
+    // กรณีที่ 1: มีการเลือกหมากไว้อยู่แล้ว
+    if (selectedSquare) {
+        // ถ้ากดซ้ำช่องเดิม ให้ยกเลิกการเลือก
+        if (selectedSquare === square) {
+            clearSelection();
+            return;
+        }
+
+        // ถ้ากดเปลี่ยนไปเลือกหมากสีเดียวกันตัวอื่น ให้ไฮไลต์ตัวใหม่แทน
+        if (piece && piece.color === turn) {
+            selectSquare(square);
+            return;
+        }
+
+        // ลองเดินหมากไปยังช่องที่กด
+        const move = game.move({
+            from: selectedSquare,
+            to: square,
+            promotion: 'q' // ออโต้โปรโมทเป็นควีน
+        });
+
+        if (move) {
+            // ถ้าเดินได้สำเร็จ
+            board.position(game.fen());
+            clearSelection();
+            afterMove(move);
+        } else {
+            // ถ้ากดเดินช่องที่ผิดกติกา ให้ยกเลิกการเลือก
+            clearSelection();
+        }
+    } 
+    // กรณีที่ 2: ยังไม่ได้เลือกหมากเลย
+    else {
+        // ถ้าช่องที่กดมีหมากของเราอยู่ ให้ทำการเลือก (Select)
+        if (piece && piece.color === turn) {
+            selectSquare(square);
+        }
+    }
+}
+
+function selectSquare(square) {
+    selectedSquare = square;
+    $('.square-55d63').removeClass('highlight-hint highlight-possible capture-move highlight-selected');
+    $('.square-' + square).addClass('highlight-selected');
+
+    // แสดงจุดวงกลมช่องที่สามารถเดินไปได้
+    const moves = game.moves({ square: square, verbose: true });
+    moves.forEach(move => {
+        const squareEl = $('.square-' + move.to);
+        squareEl.addClass('highlight-possible');
+        if (move.captured) squareEl.addClass('capture-move');
+    });
+}
+
+function clearSelection() {
+    selectedSquare = null;
+    $('.square-55d63').removeClass('highlight-possible capture-move highlight-selected');
+}
+
 function onDragStart(source, piece) {
     if (game.game_over() || isAiThinking) return false;
     if (piece.search(game.turn()) === -1) return false;
     if ($('#gameMode').val() === 'ai' && game.turn() === 'b') return false;
 
+    clearSelection();
+    
     // คำนวณและไฮไลต์ช่องที่เดินได้
     const moves = game.moves({ square: source, verbose: true });
     if (moves.length === 0) return;
@@ -374,4 +447,9 @@ $(document).ready(function() {
     initStockfish();
     updateUI();
     updateClockUI();
+
+    $('#board').on('click', '.square-55d63', function() {
+        const square = $(this).attr('data-square');
+        handleSquareClick(square);
+    });
 });
