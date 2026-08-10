@@ -96,63 +96,12 @@ function executeAiMove(moveStr) {
     }
 }
 
-// --- ระบบ Tap-to-Move ---
-function handleSquareClick(square) {
-    if (game.game_over() || isAiThinking) return;
-
-    const piece = game.get(square);
-    const turn = game.turn();
-    const isAiMode = $('#gameMode').val() === 'ai';
-
-    // ถ้าเล่นกับ AI ห้ามเรากดเลือกหมากของ AI (สีดำ)
-    if (isAiMode && turn === 'b') return;
-
-    // กรณีที่ 1: มีการเลือกหมากไว้อยู่แล้ว
-    if (selectedSquare) {
-        // ถ้ากดซ้ำช่องเดิม ให้ยกเลิกการเลือก
-        if (selectedSquare === square) {
-            clearSelection();
-            return;
-        }
-
-        // ถ้ากดเปลี่ยนไปเลือกหมากสีเดียวกันตัวอื่น ให้ไฮไลต์ตัวใหม่แทน
-        if (piece && piece.color === turn) {
-            selectSquare(square);
-            return;
-        }
-
-        // ลองเดินหมากไปยังช่องที่กด
-        const move = game.move({
-            from: selectedSquare,
-            to: square,
-            promotion: 'q' // ออโต้โปรโมทเป็นควีน
-        });
-
-        if (move) {
-            // ถ้าเดินได้สำเร็จ
-            board.position(game.fen());
-            clearSelection();
-            afterMove(move);
-        } else {
-            // ถ้ากดเดินช่องที่ผิดกติกา ให้ยกเลิกการเลือก
-            clearSelection();
-        }
-    } 
-    // กรณีที่ 2: ยังไม่ได้เลือกหมากเลย
-    else {
-        // ถ้าช่องที่กดมีหมากของเราอยู่ ให้ทำการเลือก (Select)
-        if (piece && piece.color === turn) {
-            selectSquare(square);
-        }
-    }
-}
-
+// --- การไฮไลต์และเลือกช่อง (Tap-to-Move helpers) ---
 function selectSquare(square) {
     selectedSquare = square;
     $('.square-55d63').removeClass('highlight-hint highlight-possible capture-move highlight-selected');
     $('.square-' + square).addClass('highlight-selected');
 
-    // แสดงจุดวงกลมช่องที่สามารถเดินไปได้
     const moves = game.moves({ square: square, verbose: true });
     moves.forEach(move => {
         const squareEl = $('.square-' + move.to);
@@ -166,27 +115,32 @@ function clearSelection() {
     $('.square-55d63').removeClass('highlight-possible capture-move highlight-selected');
 }
 
+// --- Event ตอนเริ่มลากหมาก (หรือกดแตะตัวหมากครั้งแรก) ---
 function onDragStart(source, piece) {
     if (game.game_over() || isAiThinking) return false;
-    if (piece.search(game.turn()) === -1) return false;
-    if ($('#gameMode').val() === 'ai' && game.turn() === 'b') return false;
-
-    clearSelection();
     
-    // คำนวณและไฮไลต์ช่องที่เดินได้
-    const moves = game.moves({ square: source, verbose: true });
-    if (moves.length === 0) return;
-    moves.forEach(move => {
-        const squareEl = $('.square-' + move.to);
-        squareEl.addClass('highlight-possible');
-        if (move.captured) squareEl.addClass('capture-move');
-    });
+    // ถ้าคลิกโดนหมากศัตรู
+    if (piece.search(game.turn()) === -1) {
+        if (!selectedSquare) return false; // ถ้ายังไม่ได้เลือกหมากตัวเอง ให้ข้ามไป
+    } else {
+        selectSquare(source); // ถ้าคลิกหมากตัวเอง ให้ทำการเลือก (ไฮไลต์)
+    }
+
+    if ($('#gameMode').val() === 'ai' && game.turn() === 'b') return false;
 }
 
+// --- Event ตอนปล่อยหมากที่ลาก ---
 function onDrop(source, target) {
-    $('.square-55d63').removeClass('highlight-hint highlight-possible capture-move');
+    // *** จุดที่แก้บั๊ก: ถ้าเป็นการ "แตะแล้วปล่อยที่เดิม" ให้ข้ามการล้างค่าไฮไลต์ไปเลย ***
+    if (source === target) return 'snapback';
+
+    $('.square-55d63').removeClass('highlight-hint highlight-possible capture-move highlight-selected');
     let move = game.move({ from: source, to: target, promotion: 'q' });
-    if (move === null) return 'snapback';
+    if (move === null) {
+        clearSelection(); 
+        return 'snapback';
+    }
+    clearSelection();
     afterMove(move);
 }
 
@@ -435,6 +389,20 @@ $('#modalPlayAgainBtn').click(() => {
     $('#newGameBtn').click();
 });
 
+// Board Themes Event
+const boardThemes = {
+    slate: { light: '#e2e8f0', dark: '#64748b' },
+    green: { light: '#ebecd0', dark: '#779556' },
+    wood: { light: '#f0d9b5', dark: '#b58863' },
+    blue: { light: '#dee3e6', dark: '#8ca2ad' }
+};
+
+$('#boardTheme').change(function() {
+    const selectedTheme = boardThemes[$(this).val()];
+    document.documentElement.style.setProperty('--board-light', selectedTheme.light);
+    document.documentElement.style.setProperty('--board-dark', selectedTheme.dark);
+});
+
 // --- Start App ---
 $(document).ready(function() {
     board = Chessboard('board', {
@@ -448,8 +416,41 @@ $(document).ready(function() {
     updateUI();
     updateClockUI();
 
-    $('#board').on('click', '.square-55d63', function() {
+    // --- ระบบแตะเพื่อเดินหมาก (Tap-to-move ขั้นที่ 2) ---
+    let lastTap = 0;
+    $('#board').on('mousedown touchstart', '.square-55d63', function(e) {
+        // ป้องกัน Event ทับซ้อนเวลากดรัวๆ
+        const timeNow = new Date().getTime();
+        if (timeNow - lastTap < 100) return;
+        lastTap = timeNow;
+
+        // ถ้ายังไม่มีหมากถูกเลือก ให้ปล่อยเป็นหน้าที่ของ onDragStart ทำงาน
+        if (!selectedSquare) return;
+
         const square = $(this).attr('data-square');
-        handleSquareClick(square);
+        const piece = game.get(square);
+        const turn = game.turn();
+        
+        // ถ้าแตะหมากตัวเองตัวอื่น ให้ย้ายการเลือกไปไฮไลต์ตัวใหม่แทน
+        if (piece && piece.color === turn) {
+            selectSquare(square);
+            return;
+        }
+
+        // ลองเดินหมากไปยังช่องที่ถูกแตะ
+        const move = game.move({
+            from: selectedSquare,
+            to: square,
+            promotion: 'q'
+        });
+
+        if (move) {
+            board.position(game.fen());
+            clearSelection();
+            afterMove(move);
+            e.preventDefault(); // กันไม่ให้ระบบลากของกระดานทำงานแทรกซ้อน
+        } else {
+            clearSelection(); // ถ้าแตะช่องที่เดินไม่ได้ ให้ล้างการไฮไลต์ทิ้ง
+        }
     });
 });
