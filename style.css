@@ -33,6 +33,17 @@
     border: 4px solid rgba(0, 0, 0, 0.3);
 }
 
+/* --- อัปเดตสำหรับมือถือและการกดเลือก (Tap-to-Move) --- */
+#board {
+    touch-action: manipulation;
+}
+
+/* ไฮไลต์ช่องที่เรากำลังกดเลือกอยู่ */
+.highlight-selected {
+    background-color: rgba(59, 130, 246, 0.6) !important; /* สีฟ้า */
+    box-shadow: inset 0 0 5px rgba(0, 0, 0, 0.3);
+}
+
 /* ปรับแต่ง Scrollbar */
 ::-webkit-scrollbar { width: 6px; }
 ::-webkit-scrollbar-track { background: #1e293b; }
